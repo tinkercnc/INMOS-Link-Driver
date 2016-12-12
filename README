@@ -13,3 +13,13 @@ Build and installs under Debian 7 (32bit) and Linux kernel 3.2.26, as of Novembe
 
 Only tested with INMOS B004 compatible hardware so far (Transtech TMB04 motherboard).
 See my other projects (INMOS-ispy and the rest) for updated user-level code to utilise the new Link driver module.
+
+
+fuer die pcmcia karte sind zusaetzlich folgende module notwendig:
+
+b1
+????? b1pci
+kernelcapi
+b1pcmcia
+avm_cs
+

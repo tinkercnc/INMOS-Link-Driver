@@ -49,7 +49,7 @@
 /* Copyright (C) 1992 by Jim Weigand, Linus Torvalds, and Michael K. Johnson */
 
 
-#ifndef __i386__
+#if !(defined( __i386__) || defined(__x86_64__))
 #error This driver requires the Intel architecture
 #endif
 
@@ -63,15 +63,26 @@
 #include <linux/linkage.h>
 #include <linux/kdev_t.h>
 #include <linux/fs.h>
+#include <linux/slab.h>
+
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/mutex.h>
 
 #include <asm/io.h>
 #include <asm/segment.h>
 #include <asm/uaccess.h>
 
+#include "avm-b1.h"
 #include "link-driver.h"
 #include <linux/module.h>
+#include <linux/moduleparam.h>
+#include <linux/init.h>
+
 #include <linux/version.h>
 #include <generated/utsrelease.h>
+
+MODULE_LICENSE("GPL");
 
 char kernel_version[] = UTS_RELEASE;
 
@@ -110,24 +121,36 @@ char kernel_version[] = UTS_RELEASE;
 #endif
 
 
+/* -------- driver information -------------------------------------- */
+
+static DEFINE_MUTEX(link_mutex);
+static struct class *link_class;
+static unsigned int link_major = 0;		/* allocated */
+static struct link_struct *link_devices = NULL;
+
+//module_param_named(major, link_major, uint, 0);
+
 /**** This structure defines each interface control ****/
 static struct link_struct link_table[LINK_NO] =
 {
 	 { LINK_READ_ABORT | LINK_WRITE_ABORT, 0, 0, 0, 0,
-	 LINK_INIT_READ_TIMEOUT, LINK_INIT_WRITE_TIMEOUT, LINK_B004 },
+	 		LINK_INIT_READ_TIMEOUT, LINK_INIT_WRITE_TIMEOUT, LINK_B004 },
 	 { LINK_READ_ABORT | LINK_WRITE_ABORT, 0, 0, 0, 0,
-	 LINK_INIT_READ_TIMEOUT, LINK_INIT_WRITE_TIMEOUT, LINK_B004 },
+	 		LINK_INIT_READ_TIMEOUT, LINK_INIT_WRITE_TIMEOUT, LINK_B004 },
 };
 
-static unsigned char link_devices = 0;	/* number of devices dectected */
+static unsigned char link_ndevices = LINK_NO;	/* number of devices dectected */
 
+/* ================================================================ */
 /**** These are the board interface IO addresses the driver will search ****/
 static const short link_base_addresses[] = { 0x150, 0x170, 0x190, 0 };
+
+/*
 static const char *link_name(dev_t minor)
 {
 	static char name[] = LINK_NAME"?";
 
-	if (minor < link_devices)
+	if (minor < link_ndevices)
 	{
 		name[4] = minor + '0';
 		return name;
@@ -135,13 +158,16 @@ static const char *link_name(dev_t minor)
 	else
 		return (const char*)0;
 }
+*/
 
-
+/* ================================================================ */
 const char *byte_to_binary(int x)
 {
     static char b[9];
-    b[0] = '\0';
     int z;
+    
+    b[0] = '\0';
+    
     for (z = 128; z > 0; z >>= 1)
     {
         strcat(b, ((x & z) == z) ? "1" : "0");
@@ -149,6 +175,7 @@ const char *byte_to_binary(int x)
     return b;
 }
 
+/* ================================================================ */
 /*********************************************************************
  This function is used to generate a fixed delay count of 100 milli-
  seconds. The timer is used to generate fixed delay intervals for the
@@ -158,7 +185,6 @@ const char *byte_to_binary(int x)
  to generate the delay. Unfortunately the delay does not work very
  well when CPU speeds are increased to faster and faster types.
 **********************************************************************/
-
 static void link_delay(void)
 {
 	unsigned int	timer;
@@ -172,7 +198,7 @@ static void link_delay(void)
 	}
 }
 
-
+/* ================================================================ */
 /****************************************************************************
  *
  * static void link_reset():
@@ -180,32 +206,32 @@ static void link_delay(void)
  * reset transputer network.
  *
  ****************************************************************************/
-
-static int link_reset( int minor )
+static int link_reset(int minor)
 {
 
-	PRINTK("LINK(%d) resetting transputer. (0x%x)\n", minor, LINK_RESET(minor));
+	PRINTK("link-driver (link-reset): LINK(%d) resetting transputer. (0x%x)\n", minor, LINK_RESET(minor));
 
-	PRINTK("LINK(%d) reset() data [0x%02x]\n", minor, LINK_DEASSERT_ANALYSE);
+	PRINTK("link-driver (link-reset): LINK(%d) reset() data [0x%02x]\n", minor, LINK_DEASSERT_ANALYSE);
 	out( LINK_DEASSERT_ANALYSE, LINK_ANALYSE(minor));
 	link_delay();
 
-	PRINTK("LINK(%d) reset() data [0x%02x]\n", minor, LINK_DEASSERT_RESET);
+	PRINTK("link-driver (link-reset): LINK(%d) reset() data [0x%02x]\n", minor, LINK_DEASSERT_RESET);
 	out( LINK_DEASSERT_RESET, LINK_RESET(minor));
 	link_delay();
 
-	PRINTK("LINK(%d) reset() data [0x%02x]\n", minor, LINK_ASSERT_RESET);
+	PRINTK("link-driver (link-reset): LINK(%d) reset() data [0x%02x]\n", minor, LINK_ASSERT_RESET);
 	out( LINK_ASSERT_RESET, LINK_RESET(minor));
 	link_delay();
 
-	PRINTK("LINK(%d) reset() data [0x%02x]\n", minor, LINK_DEASSERT_RESET);
+	PRINTK("link-driver (link-reset): LINK(%d) reset() data [0x%02x]\n", minor, LINK_DEASSERT_RESET);
 	out( LINK_DEASSERT_RESET, LINK_RESET(minor));
 	link_delay();
 
-	DEB_MORE(printk("LINK(%d) reset() success!\n\n", minor);)
+	DEB_MORE(printk("link-driver (link-reset): LINK(%d) reset() success!\n\n", minor);)
 	return 0;
 }
 
+/* ================================================================ */
 /****************************************************************************
  *
  * static void link_analyse():
@@ -213,11 +239,10 @@ static int link_reset( int minor )
  * switch transputer network to analyse mode.
  *
  ****************************************************************************/
-
 static void link_analyse( const int minor )
 {
 
-	PRINTK("LINK(%d) switching transputer to analyse mode.\n", minor);
+	PRINTK("link-driver (link-analyse): LINK(%d) switching transputer to analyse mode.\n", minor);
 
 	out( LINK_DEASSERT_ANALYSE, LINK_ANALYSE(minor));
 	link_delay();
@@ -234,10 +259,10 @@ static void link_analyse( const int minor )
 	out( LINK_DEASSERT_ANALYSE, LINK_ANALYSE(minor));
 	link_delay();
 
-	DEB_MORE(printk("LINK(%d) analyse() success!\n\n", minor);)
+	DEB_MORE(printk("link-driver (link-analyse): LINK(%d) analyse() success!\n\n", minor);)
 } /* link_analyse() */
 
-
+/* ================================================================ */
 /****************************************************************************
  *
  * static int link_read() - read bytes from the link interface.
@@ -258,15 +283,12 @@ static void link_analyse( const int minor )
  * On exit: -EINTR		- Break due to interrupt.
  *          count		- Count of character actually read from Rx.
  *****************************************************************************/
-
 static ssize_t link_read( struct file * file,
                           char * buf,
                           size_t count,
                           loff_t *ppos )
 {
-	const unsigned int	minor = MINOR(file->f_dentry->d_inode->i_rdev);
-	      unsigned int	timer;
-	      unsigned int	sleep_timer;
+	const unsigned int	minor = MINOR(file->f_path.dentry->d_inode->i_rdev);
 	               int	l_count;
 	               int	max_sleep;
 	               int	end;
@@ -276,85 +298,47 @@ static ssize_t link_read( struct file * file,
 	              char	buffer[LINK_MAX_BYTES];
 	DEB(  unsigned int	link_total_bytes_read = 0; )
 
-	DEB_MORE(printk("LINK(%d) read() set to %d bytes\n", minor, count);)
+	DEB_MORE(printk("link-driver (link-read): LINK(%d) read() set to %d bytes\n", minor, (int)count);)
 
 	if ( count < 0)
 	{
-		PRINTK("LINK(%d) read() EINVAL! count = %d\n\n", minor, count);
+		PRINTK("link-driver (link-read): LINK(%d) read() EINVAL! count = %d\n\n", minor, (int)count);
 		return( -EINVAL );
 	}
 
-	if ( (LINK_F(minor) &= ~LINK_BUSY) == 0)
+	if((LINK_F(minor) &= ~LINK_BUSY) == 0)
 	{
-		DEB_MORE(printk("LINK(%d) read() EINVAL!\n\n", minor);)
+		DEB_MORE(printk("link-driver (link-read): LINK(%d) read() EINVAL!\n\n", minor);)
 		return( -EINVAL );
 	}
 
 	max_sleep = 0;
-	while ( count )
+	while(count )
 	{
 		l_count = 0;
-
 		end = count;
-
 		if (end > LINK_MAX_BYTES) end = LINK_MAX_BYTES;
 
-/**** Main character read from UART ****/
-
-		timer = jiffies + (100 / (1000 / HZ));
-		sleep_timer = jiffies + (20 / (1000 / HZ));
-		
-		while (end)
+		while(end)
 		{
-			if (timer < jiffies) break;
-			
-			if ( in(LINK_ISR(minor)) & LINK_READBYTE )
-			{
-				c = (char)in(LINK_IDR(minor));
-				PRINTK("LINK(%d) read() data [0x%02x]\n", minor, c);
-				buffer[l_count] = c;
-
-				DEB(link_total_bytes_read++;)
-				end--;
-				l_count++;
-				
-				/* Reset sleep count after a successful read */
-				max_sleep = 0;
+			if(!b1_get_byte_stat(LINK_BASE(minor), &c)) {
+				PRINTK("link-driver (link-read): LINK(%d) read() EINTR! Timeout!\n\n", minor);
+				return( -EINTR );
 			}
+			DEB_MORE(PRINTK("link-driver (link-read): LINK(%d) read() data [0x%02x]\n", minor, c));
+			buffer[l_count] = c;
 
-			if (sleep_timer < jiffies)
-			{				
-				/* 
-				 * return if rescheduled more than 100 times - a single byte shouldn't
-				 * take more than a few timer reschedules to read! Stops user space 
-				 * code from hanging indefinitely.
-				 */
-				if (max_sleep > 100)
-				{
-					PRINTK("LINK(%d) read() EINTR! reschedule sleep timer exceeded!\n\n", minor);
-					return( -EINTR );
-				}
-				
-				sleep_timer = jiffies + (20 / (1000 / HZ));
-				
-				if (signal_pending(current))
-				{
-					DEB_MORE(printk("LINK(%d) read() EINTR! interrupted!\n\n", minor);)
-					return( -EINTR );
-				}
-
-				if (need_resched())
-				{
-					max_sleep++;
-					/*DEB_MORE(PRINTK("LINK(%d) read() sleep for IO [%d remaining]\n", minor, (100 - max_sleep));)*/
-					schedule();
-				}
-				
+			DEB(link_total_bytes_read++;)
+			end--;
+			l_count++;
+			if(signal_pending(current))
+			{
+				DEB_MORE(printk("link-driver (link-read): LINK(%d) read() EINTR! interrupted!\n\n", minor);)
+				return( -EINTR );
 			}
 		}
 
 /**** Move received characters to user space ****/
-
 		if (l_count)
 		{
 			copy_result = copy_to_user( temp, buffer, l_count );
@@ -363,16 +347,14 @@ static ssize_t link_read( struct file * file,
 		}
 	}
 
-	DEB_MORE(printk("LINK(%d) read() success!\n", minor);)
-	DEB_MORE(printk("LINK(%d) [bytes read: %d]\n\n", minor, l_count);)
+	DEB_MORE(printk("link-driver (link-read): LINK(%d) read() success!\n", minor);)
+	DEB_MORE(printk("link-driver (link-read): LINK(%d) [bytes read: %d]\n\n", minor, l_count);)
 
 	return( temp - buf );
 
 } /* LINK_read() */
 
-
-
-
+/* ================================================================ */
 /****************************************************************************
  *
  * static int link_write() - write to the link interface.
@@ -397,37 +379,35 @@ static ssize_t link_read( struct file * file,
  *           -EINVAL  - Timeout due to locked UART.
  *           count    - Number or bytes written to Transputer.
  *****************************************************************************/
-
 static ssize_t link_write( struct file * file,
                            const char * buf,
                            size_t count,
                            loff_t *ppos )
 {
-	const unsigned int	minor = MINOR(file->f_dentry->d_inode->i_rdev);
-	      unsigned int	timer;
-	      unsigned int	sleep_timer;
+	const unsigned int	minor = MINOR(file->f_path.dentry->d_inode->i_rdev);
 	               int	l_count = 0;
 	               int	size = count;
 	               int	copy_result;
 	               int	end;
 	        const char	*cptr = buf;
 	              char	buffer[LINK_MAX_BYTES];
-	DEB(  unsigned int link_total_bytes_written = 0; )
+	              
+	              int loopcount = 0;
 
-	DEB_MORE(printk("LINK writing %d bytes to link %d.\n", count, minor);)
+	DEB_MORE(printk("link-driver (link-write): LINK(%d) writing %d bytes to link %d.\n", minor, (int)count, minor);)
 
-	if ( (LINK_F(minor) &= ~LINK_BUSY) == 0)
+	if((LINK_F(minor) &= ~LINK_BUSY) == 0)
 	{
 		return( -EINVAL );
 	}
 
-	if ( count < 0)
+	if(count < 0)
 	{
-		PRINTK("LINK(%d) write() invalid argument: count = %d.\n", minor, count);
+		PRINTK("link-driver (link-write): LINK(%d) write() invalid argument: count = %d.\n", minor, (int)count);
 		return( -EINVAL );
 	}
 
-	while ( count )
+	while(count)
 	{
 		l_count = 0;
 		end = count;
@@ -436,63 +416,48 @@ static ssize_t link_write( struct file * file,
 
 		copy_result = copy_from_user( buffer, cptr, end );
 		cptr += end;
-
-/**** Setup timers and begin to send data out the UART ****/
-
-		timer = jiffies + (100 / (1000 / HZ));
-		sleep_timer = jiffies + (20 / (1000 / HZ));
-
-		while (end)
+		
+		while(end)
 		{
-			if (in(LINK_OSR(minor)) & LINK_WRITEBYTE)
-			{
-				PRINTK("LINK(%d) write() data [0x%02x]\n", minor, buffer[l_count]);
-				out( buffer[l_count], LINK_ODR(minor) );
-
-				end--;
-				l_count++;
-
-				DEB(link_total_bytes_written++;)
-			}
-
-			if (timer < jiffies)
-			{
-				PRINTK("LINK(%d) write(): Timed out waiting for Tx register\n", minor );
+			
+			if(b1_save_put_byte(LINK_BASE(minor), buffer[l_count])<0) {
+				PRINTK("link-driver (link-write): LINK(%d) write(): Timed out waiting for Tx register\n", minor );
 				return( -EINVAL );
 			}
+			DEB_MORE(PRINTK("link-driver (link-write): LINK(%d) write() data [0x%02x]\n", minor, buffer[l_count]));
+			end--;
+			l_count++;
+			
+			DEB_MORE(PRINTK("link-driver (link-write): LINK(%d) write(): Loop: %d\n", minor, loopcount));
 
-			if (sleep_timer < jiffies)
+			if(signal_pending( current ))
 			{
-				sleep_timer = jiffies + (20 / (1000 / HZ));
-
-				if (signal_pending( current ))
-				{
-					return( -EINTR );
-				}
-
-				if ( need_resched() ) schedule();
+				return( -EINTR );
 			}
+			
+			loopcount++;
 		}
 
 		count -= l_count;
 	}
 
-	DEB_MORE(printk("LINK(%d) write() success!\n", minor);)
-	DEB_MORE(printk("LINK(%d) [bytes remaining: %d | bytes written: %d]\n\n", minor, count, l_count);)
+	DEB_MORE(printk("link-driver (link-write): LINK(%d) write() success!\n", minor);)
+	DEB_MORE(printk("link-driver (link-write): LINK(%d) [bytes remaining: %d | bytes written: %d]\n\n", minor, (int)count, l_count);)
 	return( size - count );
 } /* link_write() */
 
+/* ================================================================ */
 /****************************************************************************
  *
  * static int link_lseek()
  *
  ***************************************************************************/
-
-static loff_t link_lseek(struct file * file, long long offset, int origin)
+static loff_t link_llseek(struct file * file, long long offset, int origin)
 {
 	return -ESPIPE;
 }
 
+/* ================================================================ */
 /****************************************************************************
  *
  * static int link_open()
@@ -500,16 +465,40 @@ static loff_t link_lseek(struct file * file, long long offset, int origin)
  * open the link-device.
  *
  ***************************************************************************/
-
-static int link_open(struct inode * inode, struct file * file)
+static int link_open(struct inode *inode, struct file *devfile)
 {
-	const unsigned int minor = MINOR(inode->i_rdev);
+	unsigned int major = imajor(inode);
+	unsigned int minor = iminor(inode);
 
-	if (minor >= link_devices)
+	struct link_struct *dev = NULL;
+	
+	if(major != link_major || minor < 0 || minor >= link_ndevices)
 	{
-		PRINTK("LINK not opened, minor device number >= %d.\n", link_devices);
+		printk(KERN_WARNING "[target] "
+			"link-driver (link-open): No device found with minor=%d and major=%d\n", 
+			major, minor);
+		return -ENODEV; /* No such device */
+	}
+	
+	/* store a pointer to struct link_struct here for other methods */
+	//dev = &link_devices[minor];
+	dev = link_devices;
+	devfile->private_data = dev; 
+	
+	if(inode->i_cdev != &dev->cdev)
+	{
+		printk(KERN_WARNING "link-driver (link-open): [target] open: internal error- No such device\n");
+		return -ENODEV; /* No such device */
+	}
+	
+	
+	/*
+	if (minor >= link_ndevices)
+	{
+		PRINTK("LINK not opened, minor device number >= %d.\n", link_ndevices);
 		return -ENODEV;
 	}
+*/
 
 	if (LINK_F(minor) & LINK_BUSY)
 	{
@@ -518,13 +507,14 @@ static int link_open(struct inode * inode, struct file * file)
 	}
 
 	LINK_F(minor) |= LINK_BUSY;
-
-	PRINTK( "LINK(%d) opened.\n\n", minor);
+	
+	
+	PRINTK( "link-driver (link-open): LINK(%d) opened.\n\n", minor);
 	return 0;
 
 } /* link_open() */
 
-
+/* ================================================================ */
 /****************************************************************************
  *
  * static int link_release()
@@ -532,26 +522,25 @@ static int link_open(struct inode * inode, struct file * file)
  * close the link device.
  *
  ****************************************************************************/
-
 static int link_release(struct inode * inode, struct file * file)
 {
 	const unsigned int minor = MINOR(inode->i_rdev);
 
-	if (minor >= link_devices)
+	if (minor >= link_ndevices)
 	{
-		PRINTK("LINK not released, minor device number >= %d.\n", link_devices);
+		PRINTK("link-driver (link-release): LINK not released, minor device number >= %d.\n", link_ndevices);
 		return 0;
 	}
 
 	LINK_F(minor) &= ~LINK_BUSY;
 
-	PRINTK("LINK(%d) released.\n\n", minor);
+	PRINTK("link-driver (link-release): LINK(%d) released.\n\n", minor);
 
 	return 0;
 
 } /* link_release() */
 
-
+/* ================================================================ */
 /****************************************************************************
  *
  * static int link_ioctl()
@@ -561,23 +550,22 @@ static int link_release(struct inode * inode, struct file * file)
  * timeouts etc.
  *
  *****************************************************************************/
-
 static int link_ioctl( struct file *file,
 		               unsigned int cmd,
 		               unsigned long arg )
 {
-	const unsigned int	minor = MINOR(file->f_dentry->d_inode->i_rdev);
+	const unsigned int	minor = MINOR(file->f_path.dentry->d_inode->i_rdev);
 	               int	result = arg;
 
-	PRINTK("LINK(%d) ioctl, cmd: 0x%x, arg: 0x%x.\n", minor, cmd, (int) arg);
+	PRINTK("link-driver (link-ioctl): LINK(%d) ioctl, cmd: 0x%x, arg: 0x%x.\n", minor, cmd, (int) arg);
 
-	if (minor >= link_devices || !(LINK_F(minor) & LINK_BUSY) )
+	if (minor >= link_ndevices || !(LINK_F(minor) & LINK_BUSY) )
 	{
 		DEB(
-			if (minor >= link_devices)
-				printk("LINK ioctl exit, minor >= %d.\n", link_devices );
+			if (minor >= link_ndevices)
+				printk("link-driver (link-ioctl): LINK ioctl exit, minor >= %d.\n", link_ndevices );
 			else
-				printk("LINK ioctl exit, device not opened.\n" );
+				printk("link-driver (link-ioctl): LINK ioctl exit, device not opened.\n" );
 		)
 		return -ENODEV;
 	}
@@ -619,95 +607,226 @@ static int link_ioctl( struct file *file,
 		default: result = -EINVAL;
 	}
 
-	PRINTK("LINK(%d) ioctl done.\n\n", minor);
+	PRINTK("link-driver (link-ioctl): LINK(%d) ioctl done.\n\n", minor);
 
 	return result;
 
 } 
 
-static struct file_operations link_fops = {
+/* ================================================================ */
+static long
+link_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	int ret;
+
+	mutex_lock(&link_mutex);
+	ret = link_ioctl(file, cmd, arg);
+	mutex_unlock(&link_mutex);
+
+	return ret;
+}
+
+/* ================================================================ */
+struct file_operations link_fops = {
 	.owner 		= THIS_MODULE,	
-	.llseek 	= link_lseek,
+	.llseek 	= link_llseek,
 	.read 		= link_read,
 	.write 		= link_write,
-	.unlocked_ioctl	= link_ioctl,
+	.unlocked_ioctl	= link_unlocked_ioctl,
 	.open 		= link_open,
 	.release 	= link_release
 };
 
+/* ================================================================ */
+/* Setup and register the device with specific index (the index is also
+ * the minor number of the device).
+ * Device class should be created beforehand.
+ */
+int link_construct_device(unsigned int link_port, int minor)
+{
+	unsigned int i;
+	int theerr = 0;
+	//struct link_struct *linkdev = NULL;
+	dev_t devno = 0;
+	struct device *linkdev = NULL;
+	
+	/* Get a range of minor numbers (starting with 0) to work with */
+	theerr = alloc_chrdev_region(&devno, 0, 1, LINK_NAME);
+	if(theerr) {
+		printk(KERN_WARNING "link-driver (link-construct-device):[target] alloc_chrdev_region() failed\n");
+		goto err3;
+	}
+	/* */
+	link_major = MAJOR(devno);
+	/*
+	link_major = register_chrdev(0, LINK_NAME, &link_fops);
+	if(link_major) {
+		printk(KERN_ERR "link-driver (link-construct-device): unable to get major for link interface.\n");
+		goto err;
+	}
+	*/
+	
+	link_class = class_create(THIS_MODULE, LINK_NAME);
+	if (IS_ERR(link_class)) {
+		//unregister_chrdev(link_major, LINK_NAME);
+		theerr =  PTR_ERR(link_class);
+		goto err2;
+	}
+	
+	linkdev = device_create(link_class, NULL, devno, NULL, LINK_NAME "%d", minor);
+	if (IS_ERR(linkdev)) {
+		theerr = PTR_ERR(linkdev);
+		printk(KERN_WARNING "link-driver (link-construct-device):[target] Error %d while trying to create %s%d",
+			theerr, LINK_NAME, minor);
+		
+		goto err1;
+	}
+	
+	/* Allocate the array of devices */
+	link_devices = (struct link_struct *)kzalloc(
+		1 * sizeof(struct link_struct), 
+		GFP_KERNEL);
+	if (link_devices == NULL) {
+		theerr = -ENOMEM;
+		printk(KERN_WARNING "link-driver (link-construct-device):[target] Error %d while allocating memory for device %s%d", theerr, LINK_NAME, minor);
+		goto err;
+	}
+	cdev_init(&link_devices->cdev, &link_fops);
+	link_devices->cdev.owner = THIS_MODULE;
+	
+	theerr = cdev_add(&link_devices->cdev, devno, 1);
+	if (theerr)
+	{
+		printk(KERN_WARNING "link-driver (link-construct-device):[target] Error %d while trying to add %s%d",
+			theerr, LINK_NAME, minor);
+		link_cleanup_module(1);
+		goto err3;
+	}
+	
+	if(link_port) {
+		link_delay();
+		b1_disable_irq(link_port);
+		link_delay();
+		LINK_BASE((int) minor) = link_port;
+		LINK_ODR((int) minor) = LINK_BASE((int) minor) + LINK_ODR_OFFSET;
+		LINK_ISR((int) minor) = LINK_BASE((int) minor) + LINK_ISR_OFFSET;
+		LINK_OSR((int) minor) = LINK_BASE((int) minor) + LINK_OSR_OFFSET;
+		link_reset(minor);
+		link_delay();
+
+		for(i = 0; i < LINK_MAXTRY; i++)
+		{
+			if(in(LINK_OSR((int) minor)) == LINK_WRITEBYTE)
+			{
+				out(LINK_BASE((int) minor) + B008_INT_OFFSET, 0);
+				link_delay();
+				if((in(LINK_BASE((int) minor) + B008_INT_OFFSET) & 0x0f) == 0)
+					LINK_BOARDTYPE((int) minor) = LINK_B008;
+				else
+					LINK_BOARDTYPE((int) minor) = LINK_B004;
+				printk("link-driver (link-construct-device): link%d at 0x0%x (polling) is a B00%s\n",
+					minor,LINK_IDR((int) minor),
+					LINK_BOARDTYPE((int) minor) == LINK_B004 ? "4" : "8");
+				request_region(LINK_IDR((int) minor), 
+					LINK_BOARDTYPE((int) minor) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE,
+					LINK_NAME);
+				break;
+			}
+		}
+		if (i >= LINK_MAXTRY) {
+			printk("link-driver (link-construct-device): no interfaces found.\n");
+			goto err;
+		}
+	}
+	
+	return 0;
+err:
+	unregister_chrdev(link_major, LINK_NAME);
+err1:
+	class_destroy(link_class);
+err2:
+	unregister_chrdev_region(MKDEV(link_major, 0), 1);
+err3:
+	return theerr;
+}
+EXPORT_SYMBOL(link_construct_device);
+
+/* ================================================================ */
 /****************************************************************************
  *
- * long link_init()
+ * static int link_init()
  *
  * This function initializes the driver. It tries to detect the hardware
  * and sets up all relevant data structures.
  *
  ****************************************************************************/
-long link_init(long kmem_start)
+static int __init link_init(void)
 {
-	unsigned int test, i;
+	//char *p;
+	//char rev[32];
+	int err = 0;
+	
+	//err = pci_register_driver(&b1pci_pci_driver);
 
-	if ( register_chrdev( LINK_MAJOR, LINK_NAME, &link_fops ) )
-	{
-		printk("link_init: unable to get major %d for link interface.\n",
-			LINK_MAJOR );
-		return kmem_start;
-	}
-
-	/*
-	   After a reset it should be possible to write a byte to
-	   the LINK. So let's do a reset and then test the output status
-	   register
-	*/
-	for (test = 0; link_base_addresses[test] &&
-					link_devices < LINK_NO; test++)
-	{
-		link_delay();
-		LINK_BASE((int) link_devices) = link_base_addresses[test];
-		LINK_ODR((int) link_devices) = LINK_BASE((int) link_devices) + LINK_ODR_OFFSET;
-		LINK_ISR((int) link_devices) = LINK_BASE((int) link_devices) + LINK_ISR_OFFSET;
-		LINK_OSR((int) link_devices) = LINK_BASE((int) link_devices) + LINK_OSR_OFFSET;
-		link_reset(link_devices);
-		link_delay();
-
-		for (i = 0; i < LINK_MAXTRY; i++)
-		{
-			if ( in(LINK_OSR((int) link_devices)) == LINK_WRITEBYTE)
-			{
-				out(LINK_BASE((int) link_devices) + B008_INT_OFFSET, 0);
-				link_delay();
-				if ((in(LINK_BASE((int) link_devices) + B008_INT_OFFSET) & 0x0f) == 0)
-					LINK_BOARDTYPE((int) link_devices) = LINK_B008;
-				else
-					LINK_BOARDTYPE((int) link_devices) = LINK_B004;
-				printk("link%d at 0x0%x (polling) is a B00%s\n",
-					link_devices,LINK_IDR((int) link_devices),
-					LINK_BOARDTYPE((int) link_devices) == LINK_B004 ? "4" : "8");
-				request_region(LINK_IDR((int) link_devices), 
-					LINK_BOARDTYPE((int) link_devices) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE,
-					LINK_NAME);
-				link_devices++;
-				break;
-			}
-		}
-	}
-	if (link_devices == 0) printk("link: no interfaces found.\n");
-	return( kmem_start );
+	return err;
 }
+EXPORT_SYMBOL(link_init);
 
-/* Load module */
+/* ================================================================ */
+static void __exit link_exit(void)
+{
+	//int i;
+	link_cleanup_module(1);
+	//for (i = 0; i < link_ndevices; i++)
+	//	release_region(LINK_IDR(i), LINK_BOARDTYPE(i) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE);
+}
+EXPORT_SYMBOL(link_exit);
+
+/* ================================================================ */
+/* Load module *
 int init_module(void)
 {
 	long dummy = 0;
 	dummy = link_init(dummy);
 	return 0;
 }
+*/
 
-/* Unload module */
-void cleanup_module(void)
+/* Destroy the device and free its buffer */
+static void link_destroy_device(struct link_struct *dev, int minor, struct class *class)
 {
-	int i;
-	unregister_chrdev( LINK_MAJOR, LINK_NAME );
-	for (i = 0; i < link_devices; i++)
-		release_region(LINK_IDR(i), LINK_BOARDTYPE(i) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE);
+	BUG_ON(dev == NULL || class == NULL);
+	device_destroy(class, MKDEV(link_major, minor));
+	cdev_del(&dev->cdev);
+	//kfree(dev->data);
+	//mutex_destroy(&dev->link_mutex);
+	return;
 }
+EXPORT_SYMBOL(link_destroy_device);
+
+/* ================================================================ */
+void link_cleanup_module(int devices_to_destroy)
+{
+	//int i;
+	
+	/* Get rid of character devices (if any exist) */
+	if(link_devices) {
+		//for (i = 0; i < devices_to_destroy; ++i) {
+			link_destroy_device(link_devices, 0, link_class);
+		//}
+		kfree(link_devices);
+	}
+	
+	if(link_class)
+		class_destroy(link_class);
+
+	/* [NB] link_cleanup_module is never called if alloc_chrdev_region()
+	 * has failed. */
+	unregister_chrdev_region(MKDEV(link_major, 0), devices_to_destroy);
+	return;
+}
+EXPORT_SYMBOL(link_cleanup_module);
+
+/* ================================================================ */
+module_init(link_init);
+module_exit(link_exit);

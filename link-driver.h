@@ -89,7 +89,8 @@
 #define LINK_OSR_OFFSET		3		/* Output Status Register */
 #define LINK_RESET_OFFSET	16		/* Reset/Error Register */
 #define LINK_ERROR_OFFSET	16
-#define LINK_ANALYSE_OFFSET	17		/* Analyse Register */
+//#define LINK_ANALYSE_OFFSET	17		/* Analyse Register */
+#define LINK_ANALYSE_OFFSET	4		/* Analyse Register angeblich die avm b1*/
 #define B008_DMA_OFFSET		18		/* B008: DMA request register */
 #define B008_INT_OFFSET		19		/* B008: Interrupt control reg */
 #define B004_IO_SIZE		18
@@ -104,6 +105,7 @@ struct link_struct {
 	unsigned int read_timeout;	/* timeout for reading from the link */
 	unsigned int write_timeout;	/* timeout for writing to the link */
 	int boardtype;			/* what kind of board is installed */
+	struct cdev cdev;
 };
 
 /*
@@ -147,7 +149,7 @@ struct link_struct {
 
 /*
  * bit defines for C012 status ports at base + 2/3
- * accessed with LINK_IS, LINK_OS, which gets the byte...
+ * accessed with LINK_ISR, LINK_OSR, which gets the byte...
  */
 #define LINK_READBYTE		1
 #define LINK_WRITEBYTE		1
@@ -168,7 +170,9 @@ struct link_struct {
 /*
  * function prototypes
  */
-extern long link_init(long kmem_start);
+//static int link_init(void) __init;
+extern int link_construct_device(unsigned int, int);
+void link_cleanup_module(int);
 
 #endif
 
