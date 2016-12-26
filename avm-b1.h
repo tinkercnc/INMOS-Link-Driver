@@ -194,7 +194,7 @@ static inline unsigned int b1_get_byte_stat(unsigned int base, char* db)
 		*db = inb(base + B1_READ);
 		return 1;
 	}
-	printk(KERN_CRIT "avm-b1: (b1-get-byte(0x%x)): rx not full after 1 second\n", base);
+	printk(KERN_CRIT "avm-b1: (b1-get-byte-stat(0x%x)): rx not full after 1 second\n", base);
 	return 0;
 }
 
