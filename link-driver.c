@@ -312,7 +312,7 @@ static ssize_t link_read( struct file * file,
 		return( -EINVAL );
 	}
 
-	max_sleep = 0;
+	max_sleep = 10;
 	while(count )
 	{
 		l_count = 0;
@@ -322,8 +322,12 @@ static ssize_t link_read( struct file * file,
 		while(end)
 		{
 			if(!b1_get_byte_stat(LINK_BASE(minor), &c)) {
-				PRINTK("link-driver (link-read): LINK(%d) read() EINTR! Timeout!\n\n", minor);
-				return( -EINTR );
+				if(max_sleep<=0) {
+					PRINTK("link-driver (link-read): LINK(%d) read() EINTR! Timeout!\n\n", minor);
+					return( -EINTR );
+				}
+				max_sleep--;
+				continue;
 			}
 			DEB_MORE(PRINTK("link-driver (link-read): LINK(%d) read() data [0x%02x]\n", minor, c));
 			buffer[l_count] = c;
@@ -642,13 +646,17 @@ struct file_operations link_fops = {
  * the minor number of the device).
  * Device class should be created beforehand.
  */
-int link_construct_device(unsigned int link_port, int minor)
+int link_construct_device(avmcard *card)
 {
 	unsigned int i;
+	unsigned long flags;
 	int theerr = 0;
 	//struct link_struct *linkdev = NULL;
 	dev_t devno = 0;
 	struct device *linkdev = NULL;
+	unsigned int link_port = card->port;
+	int minor = card->cardnr;
+	
 	
 	/* Get a range of minor numbers (starting with 0) to work with */
 	theerr = alloc_chrdev_region(&devno, 0, 1, LINK_NAME);
@@ -658,13 +666,6 @@ int link_construct_device(unsigned int link_port, int minor)
 	}
 	/* */
 	link_major = MAJOR(devno);
-	/*
-	link_major = register_chrdev(0, LINK_NAME, &link_fops);
-	if(link_major) {
-		printk(KERN_ERR "link-driver (link-construct-device): unable to get major for link interface.\n");
-		goto err;
-	}
-	*/
 	
 	link_class = class_create(THIS_MODULE, LINK_NAME);
 	if (IS_ERR(link_class)) {
@@ -703,9 +704,12 @@ int link_construct_device(unsigned int link_port, int minor)
 		goto err3;
 	}
 	
+	
 	if(link_port) {
 		link_delay();
+		
 		b1_disable_irq(link_port);
+		
 		link_delay();
 		LINK_BASE((int) minor) = link_port;
 		LINK_ODR((int) minor) = LINK_BASE((int) minor) + LINK_ODR_OFFSET;
@@ -724,12 +728,13 @@ int link_construct_device(unsigned int link_port, int minor)
 					LINK_BOARDTYPE((int) minor) = LINK_B008;
 				else
 					LINK_BOARDTYPE((int) minor) = LINK_B004;
+					
 				printk("link-driver (link-construct-device): link%d at 0x0%x (polling) is a B00%s\n",
-					minor,LINK_IDR((int) minor),
-					LINK_BOARDTYPE((int) minor) == LINK_B004 ? "4" : "8");
+								minor,LINK_IDR((int) minor),
+								LINK_BOARDTYPE((int) minor) == LINK_B004 ? "4" : "8");
 				request_region(LINK_IDR((int) minor), 
-					LINK_BOARDTYPE((int) minor) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE,
-					LINK_NAME);
+								LINK_BOARDTYPE((int) minor) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE,
+								LINK_NAME);
 				break;
 			}
 		}
@@ -738,6 +743,21 @@ int link_construct_device(unsigned int link_port, int minor)
 			goto err;
 		}
 	}
+	
+	spin_lock_irqsave(&card->lock, flags);
+	b1_setinterrupt(link_port, card->irq, card->cardtype);
+	spin_unlock_irqrestore(&card->lock, flags);
+	
+	
+	/*
+	spin_lock_irqsave(&card->lock, flags);
+	b1_setinterrupt(port, card->irq, card->cardtype);
+	b1_put_byte(port, SEND_INIT);
+	b1_put_word(port, CAPI_MAXAPPL);
+	b1_put_word(port, AVM_NCCI_PER_CHANNEL * 2);
+	b1_put_word(port, ctrl->cnr - 1);
+	spin_unlock_irqrestore(&card->lock, flags);
+	*/
 	
 	return 0;
 err:
