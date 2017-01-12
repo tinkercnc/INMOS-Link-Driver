@@ -6,7 +6,8 @@
 #
 ###################################################################
 
-obj-m := link-driver.o avm-pci.o
+obj-m := link-driver.o avm-cs.o avm-pci.o
+#obj-m := link-driver.o avm-pci.o
 #obj-m := avm-pci.o
 #obj-$(CONFIG_ISDN_DRV_AVMB1_B1ISA)	+= b1isa.o b1.o
 #obj-$(CONFIG_ISDN_DRV_AVMB1_B1PCI)	+= b1pci.o b1.o b1dma.o
