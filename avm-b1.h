@@ -74,7 +74,7 @@ typedef struct avmcard {
 	volatile u32 csr;
 	//avmcard_dmainfo *dma;
 
-	struct avmctrl_info *ctrlinfo;
+	//struct avmctrl_info *ctrlinfo;
 
 	u_int nr_controllers;
 	u_int nlogcontr;

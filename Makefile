@@ -6,7 +6,7 @@
 #
 ###################################################################
 
-obj-m := link-driver.o avm-cs.o avm-pci.o
+obj-m := link-driver.o avm-link-cs.o avm-pci.o
 #obj-m := link-driver.o avm-pci.o
 #obj-m := avm-pci.o
 #obj-$(CONFIG_ISDN_DRV_AVMB1_B1ISA)	+= b1isa.o b1.o
@@ -26,6 +26,7 @@ clean:
 
 install:
 	cp avm-pci.ko /lib/modules/`uname -r`/kernel/drivers/isdn/hardware/avm/
+	cp avm-link-cs.ko /lib/modules/`uname -r`/kernel/drivers/isdn/hardware/avm/
 	cp link-driver.ko /lib/modules/`uname -r`/kernel/drivers/misc/
 	depmod -a
 	

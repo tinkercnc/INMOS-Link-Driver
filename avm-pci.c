@@ -108,7 +108,7 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr)
 /* ------------------------------------------------------------- */
 void b1_free_card(avmcard *card)
 {
-	kfree(card->ctrlinfo);
+	//kfree(card->ctrlinfo);
 	kfree(card);
 }
 
