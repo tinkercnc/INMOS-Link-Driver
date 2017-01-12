@@ -48,7 +48,7 @@ static char *submodule = "TLink";
 module_param(submodule, charp, 0000);
 MODULE_PARM_DESC(submodule, "Transputer Link Module");
 
-extern int link_construct_device(unsigned int, int);
+//extern int link_construct_device(unsigned int, int);
 
 /* ------------------------------------------------------------- */
 static int avmcs_config(struct pcmcia_device *link);
@@ -125,35 +125,6 @@ void b1_free_card(avmcard *card)
 }
 
 /* ------------------------------------------------------------- */
-avmcard *b1_alloc_card(int nr_controllers)
-{
-	avmcard *card;
-	avmctrl_info *cinfo;
-	int i;
-
-	card = kzalloc(sizeof(*card), GFP_KERNEL);
-	if (!card)
-		return NULL;
-
-	cinfo = kzalloc(sizeof(*cinfo) * nr_controllers, GFP_KERNEL);
-	if (!cinfo) {
-		kfree(card);
-		return NULL;
-	}
-
-	card->ctrlinfo = cinfo;
-	for (i = 0; i < nr_controllers; i++) {
-		INIT_LIST_HEAD(&cinfo[i].ncci_head);
-		cinfo[i].card = card;
-	}
-	spin_lock_init(&card->lock);
-	card->nr_controllers = nr_controllers;
-
-	return card;
-}
-
-/* ------------------------------------------------------------- */
-
 static void b1pcmcia_remove(struct pcmcia_device *pdev)
 {
 	avmcard *card = (avmcard *)dev_get_drvdata(&(pdev->dev));
@@ -203,7 +174,7 @@ static int avmcs_config(struct pcmcia_device *link)
 	avmcard *card;
 	//avmctrl_info *cinfo;
 	//int (*addcard)(unsigned int port, unsigned irq);
-	int (*construct_device)(unsigned int port, int cardnr);
+	int (*construct_device)(avmcard *card);
 	construct_device = link_construct_device;
 
 	printk(KERN_INFO "avm-cs (avmcs-config): try to allocate PCMCIA devices...\n");
@@ -291,7 +262,7 @@ static int avmcs_config(struct pcmcia_device *link)
 	printk(KERN_INFO "avm-cs (avmcs-config): Submodule: %s\n", submodule);
 	if(!strncmp(submodule, "TLink", 5)) {
 		printk(KERN_INFO "avm-cs (avmcs-config): Try creating TLink Device...\n");
-		retval = (*construct_device)(link->resource[0]->start, card->cardnr);
+		retval = (*construct_device)(card);
 		if(retval) {
 			goto err_free_irq;
 		}
