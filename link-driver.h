@@ -171,8 +171,9 @@ struct link_struct {
  * function prototypes
  */
 //static int link_init(void) __init;
-extern int link_construct_device(unsigned int, int);
+extern int link_construct_device(avmcard *);
 void link_cleanup_module(int);
+static inline void b1_setinterrupt(unsigned int, unsigned, enum avmcardtype);
 
 #endif
 

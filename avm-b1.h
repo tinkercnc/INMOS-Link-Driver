@@ -16,6 +16,7 @@
 #include <linux/proc_fs.h>
 #include <linux/skbuff.h>
 #include <linux/delay.h>
+#include <asm/io.h>
 
 
 #define	AVMB1_PORTLEN		0x1f
@@ -54,63 +55,6 @@ typedef struct capicardparams {
 	unsigned int membase;
 } capicardparams;
 
-/*
-struct s_tlink_ctrl {
-	// filled in before calling attach_tlink_ctrl
-	struct module *owner;
-	void *driverdata;			// driver specific
-	char name[32];				// name of controller 
-	char *driver_name;			// name of driver
-
-	const struct file_operations *proc_fops;
-
-	char *(*procinfo)(struct s_tlink_ctrl *);
-	struct proc_dir_entry *procent;
-        char procfn[128];
-};
-
-struct capi_driver {
-	char name[32];				// driver name
-	char revision[32];
-
-	int (*add_card)(struct capi_driver *driver, capicardparams *data);
-
-	// management information for kcapi
-	struct list_head list; 
-};
-*/
-
-typedef struct avmcard_dmabuf {
-	long        size;
-	u8       *dmabuf;
-	dma_addr_t  dmaaddr;
-} avmcard_dmabuf;
-
-typedef struct avmcard_dmainfo {
-	u32                recvlen;
-	avmcard_dmabuf       recvbuf;
-
-	avmcard_dmabuf       sendbuf;
-	struct sk_buff_head  send_queue;
-
-	struct pci_dev      *pcidev;
-} avmcard_dmainfo;
-
-typedef	struct avmctrl_info {
-	char cardname[32];
-
-	int versionlen;
-	char versionbuf[1024];
-	char *version[AVM_MAXVERSION];
-
-	char infobuf[128];	/* for function procinfo */
-
-	struct avmcard  *card;
-	//struct s_tlink_ctrl  tlink_ctrl;
-
-	struct list_head ncci_head;
-} avmctrl_info;
-
 typedef struct avmcard {
 	char name[32];
 
@@ -128,7 +72,7 @@ typedef struct avmcard {
 
 	void __iomem *mbase;
 	volatile u32 csr;
-	avmcard_dmainfo *dma;
+	//avmcard_dmainfo *dma;
 
 	struct avmctrl_info *ctrlinfo;
 
@@ -138,8 +82,78 @@ typedef struct avmcard {
 } avmcard;
 
 
-extern int b1_irq_table[16];
+//extern int b1_irq_table[16];
+/* ------------------------------------------------------------- */
 
+int b1_irq_table[16] =
+{0,
+ 0,
+ 0,
+ 192,				/* irq 3 */
+ 32,				/* irq 4 */
+ 160,				/* irq 5 */
+ 96,				/* irq 6 */
+ 224,				/* irq 7 */
+ 0,
+ 64,				/* irq 9 */
+ 80,				/* irq 10 */
+ 208,				/* irq 11 */
+ 48,				/* irq 12 */
+ 0,
+ 0,
+ 112,				/* irq 15 */
+};
+
+/* ------------------------------------------------------------- */
+
+/* ------------------------------------------------------------- */
+
+/* AMCC S5933 pci controller registers offsets*/
+
+#define	AMCC_RXPTR	0x24
+#define	AMCC_RXLEN	0x28
+#define	AMCC_TXPTR	0x2c
+#define	AMCC_TXLEN	0x30
+
+#define	AMCC_INTCSR	0x38
+#	define EN_READ_TC_INT		0x00008000L
+#	define EN_WRITE_TC_INT		0x00004000L
+#	define EN_TX_TC_INT		EN_READ_TC_INT
+#	define EN_RX_TC_INT		EN_WRITE_TC_INT
+#	define AVM_FLAG			0x30000000L
+
+#	define ANY_S5933_INT		0x00800000L
+#	define READ_TC_INT		0x00080000L
+#	define WRITE_TC_INT		0x00040000L
+#	define	TX_TC_INT		READ_TC_INT
+#	define	RX_TC_INT		WRITE_TC_INT
+#	define MASTER_ABORT_INT		0x00100000L
+#	define TARGET_ABORT_INT		0x00200000L
+#	define BUS_MASTER_INT		0x00200000L
+#	define ALL_INT			0x000C0000L
+
+#define	AMCC_MCSR	0x3c
+#	define A2P_HI_PRIORITY		0x00000100L
+#	define EN_A2P_TRANSFERS		0x00000400L
+#	define P2A_HI_PRIORITY		0x00001000L
+#	define EN_P2A_TRANSFERS		0x00004000L
+#	define RESET_A2P_FLAGS		0x04000000L
+#	define RESET_P2A_FLAGS		0x02000000L
+
+/* ------------------------------------------------------------- */
+
+
+static inline void b1dma_writel(avmcard *card, u32 value, int off)
+{
+	writel(value, card->mbase + off);
+}
+
+static inline u32 b1dma_readl(avmcard *card, int off)
+{
+	return readl(card->mbase + off);
+}
+
+/* ------------------------------------------------------------- */
 
 #define WRITE_REGISTER		0x00
 #define READ_REGISTER		0x01
@@ -194,7 +208,9 @@ static inline unsigned int b1_get_byte_stat(unsigned int base, char* db)
 		*db = inb(base + B1_READ);
 		return 1;
 	}
-	printk(KERN_CRIT "avm-b1: (b1-get-byte(0x%x)): rx not full after 1 second\n", base);
+
+	printk(KERN_CRIT "avm-b1: (b1_get_byte_stat(0x%x)): rx not full after 1 second\n", base);
+	
 	return 0;
 }
 
@@ -306,178 +322,13 @@ static inline int b1_get_test_bit(unsigned int base,
 	return (b1_rd_reg(base, B1_STAT0(cardtype)) & 0x01) != 0;
 }
 
-/* ---------------------------------------------------------------- */
-
-#define T1_FASTLINK		0x00
-#define T1_SLOWLINK		0x08
-
-#define T1_READ			B1_READ
-#define T1_WRITE		B1_WRITE
-#define T1_INSTAT		B1_INSTAT
-#define T1_OUTSTAT		B1_OUTSTAT
-
-#define T1_IRQENABLE		0x05
-#define T1_FIFOSTAT		0x06
-#define T1_RESETLINK		0x10
-#define T1_ANALYSE		0x11
-#define T1_IRQMASTER		0x12
-#define T1_IDENT		0x17
-#define T1_RESETBOARD		0x1f
-
-#define	T1F_IREADY		0x01
-#define	T1F_IHALF		0x02
-#define	T1F_IFULL		0x04
-#define	T1F_IEMPTY		0x08
-#define	T1F_IFLAGS		0xF0
-
-#define	T1F_OREADY		0x10
-#define	T1F_OHALF		0x20
-#define	T1F_OEMPTY		0x40
-#define	T1F_OFULL		0x80
-#define	T1F_OFLAGS		0xF0
-
-/* there are HEMA cards with 1k and 4k FIFO out */
-#define FIFO_OUTBSIZE		256
-#define FIFO_INPBSIZE		512
-
-#define HEMA_VERSION_ID		0
-#define HEMA_PAL_ID		0
-
-static inline void t1outp(unsigned int base,
-			  unsigned short offset,
-			  unsigned char value)
-{
-	outb(value, base + offset);
-}
-
-static inline unsigned char t1inp(unsigned int base,
-				  unsigned short offset)
-{
-	return inb(base + offset);
-}
-
-static inline int t1_isfastlink(unsigned int base)
-{
-	return (inb(base + T1_IDENT) & ~0x82) == 1;
-}
-
-static inline unsigned char t1_fifostatus(unsigned int base)
-{
-	return inb(base + T1_FIFOSTAT);
-}
-
-static inline unsigned int t1_get_slice(unsigned int base,
-					unsigned char *dp)
-{
-	unsigned int len, i;
-#ifdef FASTLINK_DEBUG
-	unsigned wcnt = 0, bcnt = 0;
-#endif
-
-	len = i = b1_get_word(base);
-	if (t1_isfastlink(base)) {
-		int status;
-		while (i > 0) {
-			status = t1_fifostatus(base) & (T1F_IREADY | T1F_IHALF);
-			if (i >= FIFO_INPBSIZE) status |= T1F_IFULL;
-
-			switch (status) {
-			case T1F_IREADY | T1F_IHALF | T1F_IFULL:
-				insb(base + B1_READ, dp, FIFO_INPBSIZE);
-				dp += FIFO_INPBSIZE;
-				i -= FIFO_INPBSIZE;
-#ifdef FASTLINK_DEBUG
-				wcnt += FIFO_INPBSIZE;
-#endif
-				break;
-			case T1F_IREADY | T1F_IHALF:
-				insb(base + B1_READ, dp, i);
-#ifdef FASTLINK_DEBUG
-				wcnt += i;
-#endif
-				dp += i;
-				i = 0;
-				break;
-			default:
-				*dp++ = b1_get_byte(base);
-				i--;
-#ifdef FASTLINK_DEBUG
-				bcnt++;
-#endif
-				break;
-			}
-		}
-#ifdef FASTLINK_DEBUG
-		if (wcnt)
-			printk(KERN_DEBUG "b1lli(0x%x): get_slice l=%d w=%d b=%d\n",
-			       base, len, wcnt, bcnt);
-#endif
-	} else {
-		while (i-- > 0)
-			*dp++ = b1_get_byte(base);
-	}
-	return len;
-}
-
-static inline void t1_put_slice(unsigned int base,
-				unsigned char *dp, unsigned int len)
-{
-	unsigned i = len;
-	b1_put_word(base, i);
-	if (t1_isfastlink(base)) {
-		int status;
-		while (i > 0) {
-			status = t1_fifostatus(base) & (T1F_OREADY | T1F_OHALF);
-			if (i >= FIFO_OUTBSIZE) status |= T1F_OEMPTY;
-			switch (status) {
-			case T1F_OREADY | T1F_OHALF | T1F_OEMPTY:
-				outsb(base + B1_WRITE, dp, FIFO_OUTBSIZE);
-				dp += FIFO_OUTBSIZE;
-				i -= FIFO_OUTBSIZE;
-				break;
-			case T1F_OREADY | T1F_OHALF:
-				outsb(base + B1_WRITE, dp, i);
-				dp += i;
-				i = 0;
-				break;
-			default:
-				b1_put_byte(base, *dp++);
-				i--;
-				break;
-			}
-		}
-	} else {
-		while (i-- > 0)
-			b1_put_byte(base, *dp++);
-	}
-}
-
-static inline void t1_disable_irq(unsigned int base)
-{
-	t1outp(base, T1_IRQMASTER, 0x00);
-}
-
-static inline void t1_reset(unsigned int base)
-{
-	/* reset T1 Controller */
-	b1_reset(base);
-	/* disable irq on HEMA */
-	t1outp(base, B1_INSTAT, 0x00);
-	t1outp(base, B1_OUTSTAT, 0x00);
-	t1outp(base, T1_IRQMASTER, 0x00);
-	/* reset HEMA board configuration */
-	t1outp(base, T1_RESETBOARD, 0xf);
-}
-
 static inline void b1_setinterrupt(unsigned int base, unsigned irq,
 				   enum avmcardtype cardtype)
 {
+	printk(KERN_WARNING "avm_b1 (b1_setinterrupt): port=0x%04x, irq=%d, cardtype=%d \n",
+						base, irq, cardtype);
+						
 	switch (cardtype) {
-	case avm_t1isa:
-		t1outp(base, B1_INSTAT, 0x00);
-		t1outp(base, B1_INSTAT, 0x02);
-		t1outp(base, T1_IRQMASTER, 0x08);
-		break;
 	case avm_b1isa:
 		b1outp(base, B1_INSTAT, 0x00);
 		b1outp(base, B1_RESET, b1_irq_table[irq]);
@@ -507,14 +358,8 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr);
 
 extern const struct file_operations b1ctl_proc_fops;
 
-avmcard_dmainfo *avmcard_dma_alloc(char *name, struct pci_dev *,
-				   long rsize, long ssize);
-void avmcard_dma_free(avmcard_dmainfo *);
-
 /* b1dma.c */
 int b1pciv4_detect(avmcard *card);
 int t1pci_detect(avmcard *card);
-void b1dma_reset(avmcard *card);
-irqreturn_t b1dma_interrupt(int interrupt, void *devptr);
 
 #endif /* _AVM_B1_H_ */

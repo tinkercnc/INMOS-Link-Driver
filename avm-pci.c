@@ -33,7 +33,7 @@ static char *submodule = "TLink";
 module_param(submodule, charp, 0000);
 MODULE_PARM_DESC(submodule, "Transputer Link Module");
 
-extern int link_construct_device(unsigned int, int);
+extern int link_construct_device(avmcard *);
 
 /* ------------------------------------------------------------- */
 static char *revision = "$Revision: 1.1.2.2 $";
@@ -67,10 +67,22 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr)
 	unsigned char b1cmd;
 
 	unsigned long flags;
+	
+	//u32 status;
 
 	spin_lock_irqsave(&card->lock, flags);
+	
 
-	if (!b1_rx_full(card->port)) {
+
+	//spin_lock(&card->lock);
+	/*
+	status = b1dma_readl(card, AMCC_INTCSR);
+	if ((status & ANY_S5933_INT) == 0) {
+		spin_unlock_irqrestore(&card->lock, flags);
+		return IRQ_HANDLED;
+	}
+	*/
+	if(!b1_rx_full(card->port)) {
 		spin_unlock_irqrestore(&card->lock, flags);
 		return IRQ_NONE;
 	}
@@ -81,8 +93,13 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr)
 
 	default:
 		spin_unlock_irqrestore(&card->lock, flags);
-		printk(KERN_ERR "b1_interrupt: %s: b1_interrupt: 0x%x ???\n",
+		if(b1cmd>31 && b1cmd<127) {
+			printk(KERN_ERR "b1_interrupt: %s: %c",
 		       card->name, b1cmd);
+		}else{
+			printk(KERN_ERR "b1_interrupt: %s: 0x%02x ???\n",
+		       card->name, b1cmd);
+		}
 		return IRQ_HANDLED;
 	}
 	return IRQ_HANDLED;
@@ -150,24 +167,11 @@ int b1_detect(unsigned int base, enum avmcardtype cardtype)
 avmcard *b1_alloc_card(int nr_controllers)
 {
 	avmcard *card;
-	avmctrl_info *cinfo;
-	int i;
-
+	
 	card = kzalloc(sizeof(*card), GFP_KERNEL);
 	if (!card)
 		return NULL;
 
-	cinfo = kzalloc(sizeof(*cinfo) * nr_controllers, GFP_KERNEL);
-	if (!cinfo) {
-		kfree(card);
-		return NULL;
-	}
-
-	card->ctrlinfo = cinfo;
-	for (i = 0; i < nr_controllers; i++) {
-		INIT_LIST_HEAD(&cinfo[i].ncci_head);
-		cinfo[i].card = card;
-	}
 	spin_lock_init(&card->lock);
 	card->nr_controllers = nr_controllers;
 
@@ -178,10 +182,9 @@ avmcard *b1_alloc_card(int nr_controllers)
 static int b1pci_probe(struct capicardparams *p, struct pci_dev *pdev)
 {
 	avmcard *card;
-	avmctrl_info *cinfo;
 	int retval;
 	
-	int (*construct_device)(unsigned int port, int cardnr);
+	int (*construct_device)(avmcard *card);
 	construct_device = link_construct_device;
 
 	card = b1_alloc_card(1);
@@ -191,7 +194,6 @@ static int b1pci_probe(struct capicardparams *p, struct pci_dev *pdev)
 		goto err;
 	}
 
-	cinfo = card->ctrlinfo;
 	sprintf(card->name, "avm_pci-%x", p->port);
 	card->port = p->port;
 	card->irq = p->irq;
@@ -237,8 +239,8 @@ static int b1pci_probe(struct capicardparams *p, struct pci_dev *pdev)
 	// hierher gehoert die tlink driver reg
 	printk(KERN_INFO "avm_pci (b1pci-probe): Submodule: %s\n", submodule);
 	if(!strncmp(submodule, "TLink", 5)) {
-		printk(KERN_INFO "avm_pci (b1pci_probe): Try creating TLink Device...\n");
-		retval = (*construct_device)(card->port, card->cardnr);
+		printk(KERN_INFO "avm_pci (b1pci-probe): Try creating TLink Device...\n");
+		retval = (*construct_device)(card);
 		if(retval) {
 			goto err_free_irq;
 		}

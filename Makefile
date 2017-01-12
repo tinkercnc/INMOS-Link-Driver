@@ -23,3 +23,9 @@ all:
 
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+
+install:
+	cp avm-pci.ko /lib/modules/`uname -r`/kernel/drivers/isdn/hardware/avm/
+	cp link-driver.ko /lib/modules/`uname -r`/kernel/drivers/misc/
+	depmod -a
+	
