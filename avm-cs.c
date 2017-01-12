@@ -167,14 +167,11 @@ int b1pcmcia_delcard(unsigned int port, unsigned irq)
 static int avmcs_config(struct pcmcia_device *link)
 {
 	int i = -1;
-	//char devname[128];
-	//int cardtype;
 	int retval;
 	
 	avmcard *card;
-	//avmctrl_info *cinfo;
-	//int (*addcard)(unsigned int port, unsigned irq);
 	int (*construct_device)(avmcard *card);
+	
 	construct_device = link_construct_device;
 
 	printk(KERN_INFO "avm-cs (avmcs-config): try to allocate PCMCIA devices...\n");
@@ -185,12 +182,7 @@ static int avmcs_config(struct pcmcia_device *link)
 		goto err;
 	}
 	
-	
-	/*--------------
-	devname[0] = 0;
-	if (link->prod_id[1])
-		strlcpy(devname, link->prod_id[1], sizeof(devname));
-	*/
+	card->cardtype = avm_b1pcmcia;
 	
 	/*
 	 * find IO port
@@ -223,41 +215,12 @@ static int avmcs_config(struct pcmcia_device *link)
 
 	} while (0);
 
-	/*
-	if (devname[0]) {
-		char *s = strrchr(devname, ' ');
-		if (!s)
-			s = devname;
-		else s++;
-		if (strcmp("M1", s) == 0) {
-			cardtype = AVM_CARDTYPE_M1;
-		} else if (strcmp("M2", s) == 0) {
-			cardtype = AVM_CARDTYPE_M2;
-		} else {
-			cardtype = AVM_CARDTYPE_B1;
-		}
-	} else
-		cardtype = AVM_CARDTYPE_B1;
-	*/
+
+	sprintf(card->name, "avm-cs-%llx", link->resource[0]->start);
+	card->port = link->resource[0]->start;
+	card->irq = link->irq;
 	
-	/* If any step failed, release any partially configured state 
-	if (i != 0) {
-		avmcs_release(link);
-		return -ENODEV;
-	}
-	*/
-
-
-	/*
-	printk(KERN_INFO "avm-cs (avmcs-config): try to register IRQ...\n");
-	retval = request_irq(link->irq, b1_interrupt, IRQF_SHARED, card->name, card);
-	if(retval){
-		printk(KERN_ERR "avm-cs (avmcs_config):  unable to get IRQ %d.\n", link->irq);
-		retval = -EBUSY;
-		goto err_release_region;
-	}
-	*/
-
+	
 	// hierher gehoert die tlink driver reg
 	printk(KERN_INFO "avm-cs (avmcs-config): Submodule: %s\n", submodule);
 	if(!strncmp(submodule, "TLink", 5)) {
@@ -267,22 +230,6 @@ static int avmcs_config(struct pcmcia_device *link)
 			goto err_free_irq;
 		}
 	}
-	/*else {
-	
-		switch (cardtype) {
-		case AVM_CARDTYPE_M1: addcard = b1pcmcia_addcard_m1; break;
-		case AVM_CARDTYPE_M2: addcard = b1pcmcia_addcard_m2; break;
-		default:
-		case AVM_CARDTYPE_B1: addcard = b1pcmcia_addcard_b1; break;
-		}
-		if ((i = (*addcard)(link->resource[0]->start, link->irq)) < 0) {
-			dev_err(&link->dev,
-				"avm-cs: failed to add AVM-Controller at i/o %#x, irq %d\n",
-				(unsigned int) link->resource[0]->start, link->irq);
-			avmcs_release(link);
-			return -ENODEV;
-		}
-	}*/
 	return 0;
 
 	

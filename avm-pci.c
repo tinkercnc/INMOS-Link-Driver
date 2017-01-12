@@ -128,7 +128,7 @@ static int b1pci_probe(struct capicardparams *p, struct pci_dev *pdev)
 		goto err;
 	}
 
-	sprintf(card->name, "avm_pci-%x", p->port);
+	sprintf(card->name, "avm-pci-%x", p->port);
 	card->port = p->port;
 	card->irq = p->irq;
 	card->cardtype = avm_b1pci;
