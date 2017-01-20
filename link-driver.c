@@ -312,7 +312,7 @@ static ssize_t link_read( struct file * file,
 		return( -EINVAL );
 	}
 
-	max_sleep = 10;
+	max_sleep = 20;
 	while(count )
 	{
 		l_count = 0;
@@ -323,13 +323,13 @@ static ssize_t link_read( struct file * file,
 		{
 			if(!b1_get_byte_stat(LINK_BASE(minor), &c)) {
 				if(max_sleep<=0) {
-					PRINTK("link-driver (link-read): LINK(%d) read() EINTR! Timeout!\n\n", minor);
-					return( -EINTR );
+					printk(KERN_WARNING "link-driver (link-read): LINK(%d) read() EINTR! Timeout!\n\n", minor);
+					return( -EINVAL );
 				}
 				max_sleep--;
 				continue;
 			}
-			DEB_MORE(PRINTK("link-driver (link-read): LINK(%d) read() data [0x%02x]\n", minor, c));
+			DEB_MORE(PRINTK(KERN_DEBUG "link-driver (link-read): LINK(%d) read() data [0x%02x]\n", minor, c));
 			buffer[l_count] = c;
 
 			DEB(link_total_bytes_read++;)
@@ -337,7 +337,7 @@ static ssize_t link_read( struct file * file,
 			l_count++;
 			if(signal_pending(current))
 			{
-				DEB_MORE(printk("link-driver (link-read): LINK(%d) read() EINTR! interrupted!\n\n", minor);)
+				DEB_MORE(printk(KERN_DEBUG "link-driver (link-read): LINK(%d) read() EINTR! interrupted!\n\n", minor);)
 				return( -EINTR );
 			}
 		}
@@ -711,29 +711,29 @@ int link_construct_device(avmcard *card)
 		b1_disable_irq(link_port);
 		
 		link_delay();
-		LINK_BASE((int) minor) = link_port;
-		LINK_ODR((int) minor) = LINK_BASE((int) minor) + LINK_ODR_OFFSET;
-		LINK_ISR((int) minor) = LINK_BASE((int) minor) + LINK_ISR_OFFSET;
-		LINK_OSR((int) minor) = LINK_BASE((int) minor) + LINK_OSR_OFFSET;
+		LINK_BASE((uint32_t) minor) = link_port;
+		LINK_ODR((uint32_t) minor) = LINK_BASE((uint32_t) minor) + LINK_ODR_OFFSET;
+		LINK_ISR((uint32_t) minor) = LINK_BASE((uint32_t) minor) + LINK_ISR_OFFSET;
+		LINK_OSR((uint32_t) minor) = LINK_BASE((uint32_t) minor) + LINK_OSR_OFFSET;
 		link_reset(minor);
 		link_delay();
 
 		for(i = 0; i < LINK_MAXTRY; i++)
 		{
-			if(in(LINK_OSR((int) minor)) == LINK_WRITEBYTE)
+			if(in(LINK_OSR((uint32_t) minor)) == LINK_WRITEBYTE)
 			{
-				out(LINK_BASE((int) minor) + B008_INT_OFFSET, 0);
+				out(LINK_BASE((uint32_t) minor) + B008_INT_OFFSET, 0);
 				link_delay();
-				if((in(LINK_BASE((int) minor) + B008_INT_OFFSET) & 0x0f) == 0)
-					LINK_BOARDTYPE((int) minor) = LINK_B008;
+				if((in(LINK_BASE((uint32_t) minor) + B008_INT_OFFSET) & 0x0f) == 0)
+					LINK_BOARDTYPE((uint32_t) minor) = LINK_B008;
 				else
-					LINK_BOARDTYPE((int) minor) = LINK_B004;
+					LINK_BOARDTYPE((uint32_t) minor) = LINK_B004;
 					
 				printk("link-driver (link-construct-device): link%d at 0x0%x (polling) is a B00%s\n",
-								minor,LINK_IDR((int) minor),
-								LINK_BOARDTYPE((int) minor) == LINK_B004 ? "4" : "8");
-				request_region(LINK_IDR((int) minor), 
-								LINK_BOARDTYPE((int) minor) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE,
+								minor,LINK_IDR((uint32_t) minor),
+								LINK_BOARDTYPE((uint32_t) minor) == LINK_B004 ? "4" : "8");
+				request_region(LINK_IDR((uint32_t) minor), 
+								LINK_BOARDTYPE((uint32_t) minor) == LINK_B004 ? B004_IO_SIZE : B008_IO_SIZE,
 								LINK_NAME);
 				break;
 			}

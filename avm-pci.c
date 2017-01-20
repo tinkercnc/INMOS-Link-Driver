@@ -86,6 +86,9 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr)
 		spin_unlock_irqrestore(&card->lock, flags);
 		return IRQ_NONE;
 	}
+	printk(KERN_ERR "b1_interrupt: %s", card->name);
+	
+	//return IRQ_HANDLED; // solang ma nit wissen wie usw....
 
 	b1cmd = b1_get_byte(card->port);
 
@@ -93,15 +96,18 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr)
 
 	default:
 		spin_unlock_irqrestore(&card->lock, flags);
-		if(b1cmd>31 && b1cmd<127) {
-			printk(KERN_ERR "b1_interrupt: %s: %c",
-		       card->name, b1cmd);
-		}else{
-			printk(KERN_ERR "b1_interrupt: %s: 0x%02x ???\n",
-		       card->name, b1cmd);
+		//printk(KERN_WARNING "b1_interrupt: %s\n", card->name);
+		while(1) {
+			if((b1cmd>31 && b1cmd<127) || (b1cmd==0x0a) || (b1cmd==0x0d) || (b1cmd==0x09)) {
+				printk("%c", b1cmd);
+			}else{
+				printk(KERN_WARNING ",0x%02x", b1cmd);
+			}
+			if(!b1_rx_full(card->port)) goto finished;
+			b1cmd = b1_get_byte(card->port);
 		}
-		return IRQ_HANDLED;
 	}
+finished:
 	return IRQ_HANDLED;
 }
 
