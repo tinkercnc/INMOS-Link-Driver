@@ -246,7 +246,7 @@ err:
 /* ------------------------------------------------------------- */
 static void avmcs_release(struct pcmcia_device *link)
 {
-	avmcard *card = (avmcard *)dev_get_drvdata(&(pdev->dev));
+	avmcard *card = (avmcard *)dev_get_drvdata(&(link->dev));
 	unsigned int port = card->port;
 	
 	b1_reset(port);
