@@ -176,31 +176,31 @@ static inline u32 b1dma_readl(avmcard *card, int off)
 
 /* ---------------------------------------------------------------- */
 
-static inline unsigned char b1outp(unsigned int base,
-				   unsigned short offset,
-				   unsigned char value)
+static inline uint8_t b1outp(unsigned int base,
+				   uint32_t offset,
+				   uint8_t value)
 {
 	outb(value, base + offset);
 	return inb(base + B1_ANALYSE);
 }
 //EXPORT_SYMBOL(b1outp);
 
-static inline int b1_rx_full(unsigned int base)
+static inline int32_t b1_rx_full(unsigned int base)
 {
 	return inb(base + B1_INSTAT) & 0x1;
 }
 
-static inline unsigned char b1_get_byte(unsigned int base)
+static inline uint8_t b1_get_byte(unsigned int base)
 {
 	unsigned long stop = jiffies + 1 * HZ;	/* maximum wait time 1 sec */
 	while (!b1_rx_full(base) && time_before(jiffies, stop));
 	if (b1_rx_full(base))
 		return inb(base + B1_READ);
-	printk(KERN_CRIT "avm-b1: (b1-get-byte(0x%x)): rx not full after 1 second\n", base);
+	//printk(KERN_CRIT "avm-b1: (b1-get-byte(0x%x)): rx not full after 1 second\n", base);
 	return 0;
 }
 
-static inline unsigned int b1_get_byte_stat(unsigned int base, char* db)
+static inline uint32_t b1_get_byte_stat(unsigned int base, char* db)
 {
 	unsigned long stop = jiffies + 1 * HZ;	/* maximum wait time 1 sec */
 	while (!b1_rx_full(base) && time_before(jiffies, stop));
@@ -209,14 +209,14 @@ static inline unsigned int b1_get_byte_stat(unsigned int base, char* db)
 		return 1;
 	}
 
-	printk(KERN_CRIT "avm-b1: (b1_get_byte_stat(0x%x)): rx not full after 1 second\n", base);
+	//printk(KERN_CRIT "avm-b1: (b1_get_byte_stat(0x%x)): rx not full after 1 second\n", base);
 	
 	return 0;
 }
 
-static inline unsigned int b1_get_word(unsigned int base)
+static inline int32_t b1_get_word(unsigned int base)
 {
-	unsigned int val = 0;
+	int32_t val = 0;
 	val |= b1_get_byte(base);
 	val |= (b1_get_byte(base) << 8);
 	val |= (b1_get_byte(base) << 16);
@@ -224,7 +224,7 @@ static inline unsigned int b1_get_word(unsigned int base)
 	return val;
 }
 
-static inline int b1_tx_empty(unsigned int base)
+static inline int32_t b1_tx_empty(unsigned int base)
 {
 	return inb(base + B1_OUTSTAT) & 0x1;
 }
@@ -244,7 +244,7 @@ static inline int b1_save_put_byte(unsigned int base, unsigned char val)
 	return 0;
 }
 
-static inline void b1_put_word(unsigned int base, unsigned int val)
+static inline void b1_put_word(unsigned int base, int32_t val)
 {
 	b1_put_byte(base, val & 0xff);
 	b1_put_byte(base, (val >> 8) & 0xff);
@@ -252,10 +252,10 @@ static inline void b1_put_word(unsigned int base, unsigned int val)
 	b1_put_byte(base, (val >> 24) & 0xff);
 }
 
-static inline unsigned int b1_get_slice(unsigned int base,
-					unsigned char *dp)
+static inline uint32_t b1_get_slice(unsigned int base,
+					uint8_t *dp)
 {
-	unsigned int len, i;
+	uint32_t len, i;
 
 	len = i = b1_get_word(base);
 	while (i-- > 0) *dp++ = b1_get_byte(base);
@@ -263,25 +263,25 @@ static inline unsigned int b1_get_slice(unsigned int base,
 }
 
 static inline void b1_put_slice(unsigned int base,
-				unsigned char *dp, unsigned int len)
+				uint8_t *dp, uint32_t len)
 {
-	unsigned i = len;
+	uint32_t i = len;
 	b1_put_word(base, i);
 	while (i-- > 0)
 		b1_put_byte(base, *dp++);
 }
 
 static void b1_wr_reg(unsigned int base,
-		      unsigned int reg,
-		      unsigned int value)
+		      uint32_t reg,
+		      uint32_t value)
 {
 	b1_put_byte(base, WRITE_REGISTER);
 	b1_put_word(base, reg);
 	b1_put_word(base, value);
 }
 
-static inline unsigned int b1_rd_reg(unsigned int base,
-				     unsigned int reg)
+static inline uint32_t b1_rd_reg(unsigned int base,
+				     uint32_t reg)
 {
 	b1_put_byte(base, READ_REGISTER);
 	b1_put_word(base, reg);
@@ -301,7 +301,7 @@ static inline void b1_reset(unsigned int base)
 	mdelay(55 * 2);	/* 2 TIC's */
 }
 
-static inline unsigned char b1_disable_irq(unsigned int base)
+static inline uint8_t b1_disable_irq(unsigned int base)
 {
 	return b1outp(base, B1_INSTAT, 0x00);
 }
@@ -325,8 +325,7 @@ static inline int b1_get_test_bit(unsigned int base,
 static inline void b1_setinterrupt(unsigned int base, unsigned irq,
 				   enum avmcardtype cardtype)
 {
-	printk(KERN_WARNING "avm_b1 (b1_setinterrupt): port=0x%04x, irq=%d, cardtype=%d \n",
-						base, irq, cardtype);
+	printk(KERN_WARNING "avm_b1 (b1-setinterrupt entry): port=0x%04x, irq=%d, cardtype=%d \n", base, irq, cardtype);
 						
 	switch (cardtype) {
 	case avm_b1isa:
@@ -338,6 +337,7 @@ static inline void b1_setinterrupt(unsigned int base, unsigned irq,
 	case avm_m1:
 	case avm_m2:
 	case avm_b1pci:
+		printk(KERN_WARNING "avm_b1 (b1-setinterrupt): port=0x%04x, irq=%d, cardtype=%s \n", base, irq, "avm_b1pci");
 		b1outp(base, B1_INSTAT, 0x00);
 		b1outp(base, B1_RESET, 0xf0);
 		b1outp(base, B1_INSTAT, 0x02);

@@ -246,8 +246,12 @@ err:
 /* ------------------------------------------------------------- */
 static void avmcs_release(struct pcmcia_device *link)
 {
-	//b1pcmcia_delcard(link->resource[0]->start, link->irq);
-	b1pcmcia_remove(link);
+	avmcard *card = (avmcard *)dev_get_drvdata(&(pdev->dev));
+	unsigned int port = card->port;
+	
+	b1_reset(port);
+	b1_reset(port);
+	
 	pcmcia_disable_device(link);
 } /* avmcs_release */
 
