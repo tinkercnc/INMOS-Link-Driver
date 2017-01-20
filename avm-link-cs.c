@@ -26,7 +26,7 @@
 #include <asm/io.h>
 #include <linux/init.h>
 
-#include <linux/b1pcmcia.h>
+//#include <linux/b1pcmcia.h>
 
 #include <pcmcia/cistpl.h>
 #include <pcmcia/ciscode.h>
