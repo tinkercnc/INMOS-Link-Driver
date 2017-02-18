@@ -71,6 +71,8 @@ static int avmcs_probe(struct pcmcia_device *p_dev)
 static void avmcs_detach(struct pcmcia_device *link)
 {
 	avmcs_release(link);
+	kfree(link->priv);
+
 } /* avmcs_detach */
 
 /* ------------------------------------------------------------- */
@@ -117,52 +119,8 @@ irqreturn_t b1_interrupt(int interrupt, void *devptr)
 	return IRQ_HANDLED;
 }
 
-/* ------------------------------------------------------------- */
-void b1_free_card(avmcard *card)
-{
-	//kfree(card->ctrlinfo);
-	kfree(card);
-}
 
-/* ------------------------------------------------------------- */
-static void b1pcmcia_remove(struct pcmcia_device *pdev)
-{
-	avmcard *card = (avmcard *)dev_get_drvdata(&(pdev->dev));
-	//avmctrl_info *cinfo = card->ctrlinfo;
-	unsigned int port = card->port;
 
-	b1_reset(port);
-	b1_reset(port);
-
-	free_irq(card->irq, card);
-	release_region(card->port, AVMB1_PORTLEN);
-	b1_free_card(card);
-}
-
-/* ------------------------------------------------------------- */
-/*
-static void b1pcmcia_cs_remove(struct pcmcia_device *pdev)
-{
-	b1pcmcia_remove(pdev);
-}
-*/
-/* ------------------------------------------------------------- */
-/*
-int b1pcmcia_delcard(unsigned int port, unsigned irq)
-{
-	struct list_head *l;
-	avmcard *card;
-
-	list_for_each(l, &cards) {
-		card = list_entry(l, avmcard, list);
-		if (card->port == port && card->irq == irq) {
-			b1pcmcia_remove_ctr(&card->ctrlinfo[0].capi_ctrl);
-			return 0;
-		}
-	}
-	return -ESRCH;
-}
-*/
 /* ------------------------------------------------------------- */
 static int avmcs_config(struct pcmcia_device *link)
 {
@@ -220,6 +178,8 @@ static int avmcs_config(struct pcmcia_device *link)
 	card->port = link->resource[0]->start;
 	card->irq = link->irq;
 	
+	link->priv = card;
+	
 	
 	// hierher gehoert die tlink driver reg
 	printk(KERN_INFO "avm-link-cs (avmcs-config): Submodule: %s\n", submodule);
@@ -238,7 +198,9 @@ err_free_irq:
 //err_release_region:
 	release_region(card->port, AVMB1_PORTLEN);
 //err_free:
-	b1_free_card(card);
+	//b1_free_card(card);
+	kfree(card);
+	link->priv = 0;
 err:
 	return retval;
 } /* avmcs_config */
@@ -246,7 +208,8 @@ err:
 /* ------------------------------------------------------------- */
 static void avmcs_release(struct pcmcia_device *link)
 {
-	avmcard *card = (avmcard *)dev_get_drvdata(&(link->dev));
+	//avmcard *card = (avmcard *)dev_get_drvdata(&(link->dev));
+	avmcard *card = link->priv;
 	unsigned int port = card->port;
 	
 	b1_reset(port);
