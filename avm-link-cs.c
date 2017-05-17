@@ -59,7 +59,7 @@ static void avmcs_detach(struct pcmcia_device *p_dev);
 static int avmcs_probe(struct pcmcia_device *p_dev)
 {
 	/* General socket configuration */
-	printk(KERN_INFO "avm-cs (avmcs-probe): probing PCMCIA devices...\n");
+	printk(KERN_INFO "avm-link-cs (avmcs-probe): probing PCMCIA devices...\n");
 	p_dev->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
 	p_dev->config_index = 1;
 	p_dev->config_regs = PRESENT_OPTION;
@@ -223,6 +223,7 @@ static const struct pcmcia_device_id avmcs_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("AVM", "ISDN-Controller B1", 0x95d42008, 0x845dc335),
 	PCMCIA_DEVICE_PROD_ID12("AVM", "Mobile ISDN-Controller M1", 0x95d42008, 0x81e10430),
 	PCMCIA_DEVICE_PROD_ID12("AVM", "Mobile ISDN-Controller M2", 0x95d42008, 0x18e8558a),
+	PCMCIA_DEVICE_MANF_CARD(0x01a7, 0x0301),
 	PCMCIA_DEVICE_NULL
 };
 MODULE_DEVICE_TABLE(pcmcia, avmcs_ids);
