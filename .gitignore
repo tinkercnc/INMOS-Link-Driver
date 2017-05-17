@@ -1,0 +1,11 @@
+*.pyc
+*.o
+*.so
+*.ko
+*.o.cmd
+*.ko.cmd
+*.mod.o.cmd
+*.o.d
+*.mod.c
+*.mod.o
+modules.order
